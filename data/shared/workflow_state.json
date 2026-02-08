@@ -1,0 +1,21 @@
+{
+  "workflow_id": null,
+  "project_name": null,
+  "feature_name": null,
+  "status": "idle",
+  "started_at": null,
+  "completed_at": null,
+  "final_score": null,
+  "current_agent": null,
+  "completed_agents": [],
+  "pending_agents": [],
+  "loop_counts": {
+    "reviewer_implementation": 0,
+    "testing_implementation": 0
+  },
+  "max_loops": 3,
+  "quality_scores": {},
+  "human_review_required": false,
+  "escalation_reason": null,
+  "metadata": {}
+}

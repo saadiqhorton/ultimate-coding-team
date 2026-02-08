@@ -1,0 +1,13 @@
+{
+  "workflows": [],
+  "aggregate_metrics": {
+    "total_workflows": 0,
+    "completed_workflows": 0,
+    "failed_workflows": 0,
+    "average_quality_score": null,
+    "average_loops_per_workflow": 0,
+    "escalation_rate": 0
+  },
+  "agent_stats": {},
+  "last_updated": null
+}

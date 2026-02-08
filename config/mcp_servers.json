@@ -1,0 +1,17 @@
+{
+  "mcpServers": {},
+  "usage_guidelines": {
+    "when_to_use": [
+      "Researching unfamiliar frameworks or libraries",
+      "Looking up API syntax or framework documentation"
+    ],
+    "when_not_to_use": [
+      "Basic programming questions",
+      "Questions already answered in knowledge base"
+    ],
+    "best_practices": [
+      "Add your MCP server configs under mcpServers",
+      "Be specific in queries to get relevant results"
+    ]
+  }
+}

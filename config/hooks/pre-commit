@@ -1,0 +1,19 @@
+#!/bin/bash
+# Pre-commit hook: Run workflow artifact validation before allowing commit.
+# Install: cp config/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+# Runs from repo root. Expects scripts/validate_workflow_artifacts.sh to exist.
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+SCRIPT="$REPO_ROOT/scripts/validate_workflow_artifacts.sh"
+if [[ ! -f "$SCRIPT" ]]; then
+    echo "Pre-commit: validate_workflow_artifacts.sh not found at $SCRIPT"
+    exit 1
+fi
+
+# Run validation and include commit message check
+CHECK_COMMIT_MSG=1 "$SCRIPT"
+exit $?
