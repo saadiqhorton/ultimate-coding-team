@@ -1,0 +1,6 @@
+# Optional: Arize Phoenix for trace UI (http://localhost:6006)
+# Install: pip install -r requirements.txt -r requirements-phoenix.txt
+# Run: phoenix serve
+# Set: UCT_PHOENIX_ENDPOINT=http://localhost:6006
+arize-phoenix
+openinference-instrumentation-crewai

@@ -1,0 +1,125 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "build": {
+      "description": "Default agent — System Orchestrator for the Ultimate AI Coding Team. Coordinates 10 specialized agents for complex coding tasks.",
+      "mode": "primary",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "prompt": "{file:./CLAUDE.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "plan": {
+      "description": "Read-only analysis mode. Analyze code, review suggestions, plan changes without modifying anything.",
+      "mode": "primary",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "tools": {
+        "write": false,
+        "edit": false,
+        "bash": "ask"
+      }
+    },
+    "project-planner": {
+      "description": "Breaks projects into atomic tasks with dependencies. Uses research for best practices. Invoke for new projects, major features, or task breakdown.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "prompt": "{file:./.opencode/agents/project-planner.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "code-architect": {
+      "description": "Designs system architecture, selects tech stack, creates ADRs. Invoke for system design, architectural changes, or tech decisions.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "prompt": "{file:./.opencode/agents/code-architect.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "implementation-agent": {
+      "description": "Writes production-quality code following architecture specs. Can be called multiple times for self-correction loops.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "prompt": "{file:./.opencode/agents/implementation-agent.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "code-reviewer": {
+      "description": "Reviews code for bugs, security, and quality. Runs linters and type checkers. Returns to implementation if score < 85/100.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "prompt": "{file:./.opencode/agents/code-reviewer.md}",
+      "tools": {
+        "write": true,
+        "edit": false,
+        "bash": true
+      }
+    },
+    "testing-agent": {
+      "description": "Writes and runs comprehensive tests (unit, integration, e2e). Verifies coverage >= 80%. Loops back if failures found.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "prompt": "{file:./.opencode/agents/testing-agent.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "documentation-agent": {
+      "description": "Creates documentation in simple language. README, API docs, feature docs. Understandable by a high schooler.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "prompt": "{file:./.opencode/agents/documentation-agent.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "cleanup-agent": {
+      "description": "Cleans trash files, removes duplicates, organizes codebase. Cannot touch /projects/, /output/, /tasks/active/, /data/knowledge_base/.",
+      "mode": "subagent",
+      "model": "anthropic/claude-haiku-4-20250514",
+      "prompt": "{file:./.opencode/agents/cleanup-agent.md}",
+      "tools": {
+        "write": true,
+        "edit": false,
+        "bash": true
+      }
+    },
+    "git-agent": {
+      "description": "Manages Git operations: commits, branches, PRs. Never includes workflow IDs or AI attribution in commits.",
+      "mode": "subagent",
+      "model": "anthropic/claude-haiku-4-20250514",
+      "prompt": "{file:./.opencode/agents/git-agent.md}",
+      "tools": {
+        "write": true,
+        "edit": false,
+        "bash": true
+      }
+    },
+    "retrospective-agent": {
+      "description": "Analyzes completed workflows, updates knowledge base, calculates final score. Must run workflow gate before closing.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "prompt": "{file:./.opencode/agents/retrospective-agent.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    }
+  }
+}

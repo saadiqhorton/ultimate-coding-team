@@ -1,0 +1,25 @@
+{
+  "name": "@ultimate-coding-team/claude-sdk-orchestrator",
+  "version": "1.0.0",
+  "description": "Claude Agent SDK orchestrator for the Ultimate AI Coding Team — 10 specialized agents with structured outputs, quality gates, and workflow state management",
+  "type": "module",
+  "main": "dist/orchestrator.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/orchestrator.ts",
+    "dev": "tsx watch src/orchestrator.ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.39",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "tsx": "^4.7.0",
+    "@types/node": "^20.11.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
