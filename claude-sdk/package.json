@@ -1,7 +1,7 @@
 {
   "name": "@ultimate-coding-team/claude-sdk-orchestrator",
-  "version": "1.0.0",
-  "description": "Claude Agent SDK orchestrator for the Ultimate AI Coding Team — 10 specialized agents with structured outputs, quality gates, and workflow state management",
+  "version": "2.0.0",
+  "description": "Claude Agent SDK orchestrator for the Ultimate AI Coding Team — 10 specialized agents with structured outputs, quality gates, hooks, and workflow state management",
   "type": "module",
   "main": "dist/orchestrator.js",
   "scripts": {

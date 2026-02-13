@@ -1,9 +1,20 @@
 /**
- * Workflow State MCP Server
+ * Workflow State — SDK MCP Server
  *
- * Manages the shared workflow state file that coordinates
- * agent handoffs, tracks progress, and maintains shared context
- * across the 10-agent pipeline.
+ * An in-process MCP server (createSdkMcpServer) that manages the
+ * shared workflow state file coordinating agent handoffs, progress
+ * tracking, and shared context across the 10-agent pipeline.
+ *
+ * SDK MCP servers run in the same process as the orchestrator —
+ * no subprocess spawning, no stdio transport, direct function calls.
+ *
+ * Tools provided:
+ *   - get_state      — Read current workflow state
+ *   - init_project   — Initialize state for a new project
+ *   - advance_agent  — Complete current agent, advance to next
+ *   - request_rework — Send back to a previous agent (with loop counting)
+ *   - set_context    — Store shared key-value data for cross-agent use
+ *   - add_blocker    — Record a blocker or issue
  */
 
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
@@ -101,12 +112,19 @@ const PHASE_MAP: Record<string, WorkflowState["current_phase"]> = {
 };
 
 // ── MCP Server ──────────────────────────────────────────────────────
+//
+// createSdkMcpServer() returns a McpSdkServerConfigWithInstance that
+// can be passed directly into the mcpServers option on query().
+//
+// tool() creates type-safe MCP tool definitions with Zod schemas
+// for input validation.
 
 export function createWorkflowStateMcpServer(workingDir: string) {
   return createSdkMcpServer({
     name: "workflow-state",
     version: "1.0.0",
     tools: [
+      // ── get_state ─────────────────────────────────────────────
       tool(
         "get_state",
         "Read the current workflow state including current agent, phase, scores, and blockers",
@@ -119,6 +137,7 @@ export function createWorkflowStateMcpServer(workingDir: string) {
         }
       ),
 
+      // ── advance_agent ─────────────────────────────────────────
       tool(
         "advance_agent",
         "Mark current agent as complete, record quality score, and advance to next agent in pipeline",
@@ -149,7 +168,7 @@ export function createWorkflowStateMcpServer(workingDir: string) {
             state.shared_context[`${args.agent_name}_notes`] = args.notes;
           }
 
-          // Find next agent
+          // Find next agent in pipeline
           const currentIdx = AGENT_PIPELINE.indexOf(
             args.agent_name as (typeof AGENT_PIPELINE)[number]
           );
@@ -174,6 +193,7 @@ export function createWorkflowStateMcpServer(workingDir: string) {
         }
       ),
 
+      // ── request_rework ────────────────────────────────────────
       tool(
         "request_rework",
         "Send the workflow back to a previous agent for rework (used by reviewer/testing feedback loops)",
@@ -185,7 +205,9 @@ export function createWorkflowStateMcpServer(workingDir: string) {
           reason: z.string().describe("Why rework is needed"),
           loop_key: z
             .string()
-            .describe("Loop tracking key (e.g. 'review_loop', 'test_loop')"),
+            .describe(
+              "Loop tracking key (e.g. 'review_loop', 'test_loop')"
+            ),
           max_loops: z
             .number()
             .default(3)
@@ -215,7 +237,8 @@ export function createWorkflowStateMcpServer(workingDir: string) {
 
           // Send back to target agent
           state.current_agent = args.target_agent;
-          state.current_phase = PHASE_MAP[args.target_agent] || state.current_phase;
+          state.current_phase =
+            PHASE_MAP[args.target_agent] || state.current_phase;
           state.shared_context[`${args.loop_key}_feedback`] = args.reason;
 
           // Remove target from completed so it re-runs
@@ -235,12 +258,15 @@ export function createWorkflowStateMcpServer(workingDir: string) {
         }
       ),
 
+      // ── set_context ───────────────────────────────────────────
       tool(
         "set_context",
         "Store shared context data that other agents can read (e.g., tech stack decisions, file paths, conventions)",
         {
           key: z.string().describe("Context key"),
-          value: z.any().describe("Context value (any JSON-serializable data)"),
+          value: z
+            .any()
+            .describe("Context value (any JSON-serializable data)"),
         },
         async (args) => {
           const state = loadState(workingDir);
@@ -257,6 +283,7 @@ export function createWorkflowStateMcpServer(workingDir: string) {
         }
       ),
 
+      // ── add_blocker ───────────────────────────────────────────
       tool(
         "add_blocker",
         "Record a blocker or issue that needs attention",
@@ -278,6 +305,7 @@ export function createWorkflowStateMcpServer(workingDir: string) {
         }
       ),
 
+      // ── init_project ──────────────────────────────────────────
       tool(
         "init_project",
         "Initialize workflow state for a new project",

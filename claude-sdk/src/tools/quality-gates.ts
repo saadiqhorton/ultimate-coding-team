@@ -1,14 +1,19 @@
 /**
- * Quality Gates MCP Server
+ * Quality Gates — SDK MCP Server
  *
- * Validates agent outputs against configurable score thresholds,
- * checks for required artifacts, and enforces the quality standards
- * defined in each agent's SKILL.md.
+ * An in-process MCP server (createSdkMcpServer) that validates agent
+ * outputs against configurable score thresholds, checks for required
+ * artifacts, and enforces quality standards for each pipeline stage.
+ *
+ * Tools provided:
+ *   - validate_gate         — Check if agent output meets its quality gate
+ *   - get_gate_requirements — Get requirements for a specific agent
+ *   - pipeline_summary      — Full summary of all gates and their status
  */
 
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
 // ── Gate Definitions ────────────────────────────────────────────────
@@ -35,7 +40,8 @@ const QUALITY_GATES: Record<string, QualityGate> = {
   "implementation-agent": {
     minScore: 80,
     requiredArtifacts: ["src/"],
-    description: "Working code that follows architecture decisions and coding standards",
+    description:
+      "Working code that follows architecture decisions and coding standards",
   },
   "code-reviewer": {
     minScore: 85,
@@ -52,24 +58,26 @@ const QUALITY_GATES: Record<string, QualityGate> = {
   "documentation-agent": {
     minScore: 80,
     requiredArtifacts: ["docs/"],
-    description: "README, API docs, inline docs — written in simple language",
+    description:
+      "README, API docs, inline docs — written in simple language",
   },
   "git-agent": {
     minScore: 90,
     requiredArtifacts: [],
-    description: "Clean git history with conventional commits and proper branching",
+    description:
+      "Clean git history with conventional commits and proper branching",
   },
   "cleanup-agent": {
     minScore: 85,
     requiredArtifacts: [],
-    description: "No dead code, temp files cleaned, consistent formatting",
+    description:
+      "No dead code, temp files cleaned, consistent formatting",
   },
   "retrospective-agent": {
     minScore: 75,
-    requiredArtifacts: [
-      "data/knowledge_base/lessons_learned.md",
-    ],
-    description: "Lessons learned, patterns documented, knowledge base updated",
+    requiredArtifacts: ["data/knowledge_base/lessons_learned.md"],
+    description:
+      "Lessons learned, patterns documented, knowledge base updated",
   },
 };
 
@@ -80,12 +88,17 @@ export function createQualityGatesMcpServer(workingDir: string) {
     name: "quality-gates",
     version: "1.0.0",
     tools: [
+      // ── validate_gate ─────────────────────────────────────────
       tool(
         "validate_gate",
         "Check if an agent's output meets its quality gate — verifies score threshold and required artifacts exist",
         {
           agent_name: z.string().describe("Agent to validate"),
-          score: z.number().min(0).max(100).describe("Self-assessed quality score"),
+          score: z
+            .number()
+            .min(0)
+            .max(100)
+            .describe("Self-assessed quality score"),
         },
         async (args) => {
           const gate = QUALITY_GATES[args.agent_name];
@@ -143,6 +156,7 @@ export function createQualityGatesMcpServer(workingDir: string) {
         }
       ),
 
+      // ── get_gate_requirements ──────────────────────────────────
       tool(
         "get_gate_requirements",
         "Get the quality gate requirements for a specific agent",
@@ -181,12 +195,13 @@ export function createQualityGatesMcpServer(workingDir: string) {
         }
       ),
 
+      // ── pipeline_summary ──────────────────────────────────────
       tool(
         "pipeline_summary",
         "Get a full summary of all quality gates and which have been passed",
         {},
         async () => {
-          // Read workflow state if it exists
+          // Read workflow state if available
           const statePath = join(
             workingDir,
             "data",

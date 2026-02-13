@@ -7,11 +7,13 @@ Programmatic orchestration of 10 specialized AI agents via the [Claude Agent SDK
 | | `.claude/agents/` (markdown) | This SDK orchestrator |
 |---|---|---|
 | **Invocation** | Auto-routing inside Claude Code | Standalone CLI / embedded in apps |
-| **Quality gates** | Hook scripts (exit code 2) | MCP server with score validation |
-| **Workflow state** | JSON file, manual management | MCP server with typed API |
+| **Quality gates** | Hook scripts (exit code 2) | SDK MCP server with score validation |
+| **Workflow state** | JSON file, manual management | SDK MCP server with typed API |
 | **Feedback loops** | Agent self-manages | `request_rework` with loop counting |
 | **Session mgmt** | Claude Code handles it | Resume, fork, checkpoint |
 | **Structured output** | Text responses | JSON schema-validated reports |
+| **Hooks** | `.claude/settings.json` commands | In-process `HookCallbackMatcher[]` |
+| **Permissions** | Interactive approval | `canUseTool` + `permissionMode` |
 | **Best for** | Interactive Claude Code sessions | CI/CD, automation, embedding |
 
 ## Architecture
@@ -22,8 +24,8 @@ Programmatic orchestration of 10 specialized AI agents via the [Claude Agent SDK
 ├─────────────────────────────────────────────────────────────┤
 │                   orchestrator.ts (main)                      │
 │  ┌─────────────┐  ┌──────────────┐  ┌────────────────────┐  │
-│  │   Hooks      │  │  canUseTool  │  │ Structured Output  │  │
-│  │  (12 events) │  │ (permissions)│  │ (ProjectReport)    │  │
+│  │    Hooks     │  │  canUseTool  │  │ Structured Output  │  │
+│  │ (Matcher[]) │  │ (CanUseTool) │  │ (ProjectReport)    │  │
 │  └─────────────┘  └──────────────┘  └────────────────────┘  │
 ├─────────────────────────────────────────────────────────────┤
 │               System Orchestrator (main agent)               │
@@ -40,7 +42,7 @@ Programmatic orchestration of 10 specialized AI agents via the [Claude Agent SDK
 │                      MCP Servers                             │
 │  ┌─────────────────┐  ┌───────────────┐  ┌───────────────┐  │
 │  │ workflow-state   │  │ quality-gates │  │   Context7    │  │
-│  │ (state machine)  │  │ (validation)  │  │ (lib research)│  │
+│  │ (SDK MCP)       │  │ (SDK MCP)     │  │ (stdio ext.)  │  │
 │  └─────────────────┘  └───────────────┘  └───────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -49,7 +51,6 @@ Programmatic orchestration of 10 specialized AI agents via the [Claude Agent SDK
 
 ```bash
 # Prerequisites
-npm install -g @anthropic-ai/claude-code    # SDK requires Claude Code CLI
 export ANTHROPIC_API_KEY="sk-ant-..."
 
 # Install
@@ -59,6 +60,8 @@ npm install
 # Run
 npx tsx src/orchestrator.ts "Build a REST API for task management with SQLite"
 ```
+
+> The SDK bundles Claude Code CLI automatically — no separate install needed.
 
 ## Usage
 
@@ -80,166 +83,145 @@ npx tsx src/orchestrator.ts --resume abc123 "Continue with testing"
 npx tsx src/orchestrator.ts --fork --resume abc123 "Try a different database"
 ```
 
-## Agent Pipeline
+## SDK API Mapping
 
-Each agent runs in order. The code-reviewer and testing-agent can loop back to the implementation-agent up to 3 times before forcing advancement.
+This orchestrator uses the following Claude Agent SDK features:
 
-| # | Agent | Model | Tools | Quality Gate |
-|---|-------|-------|-------|-------------|
-| 1 | project-planner | sonnet | R/W/E + Context7 | ≥ 85 |
-| 2 | code-architect | sonnet | R/W/E + Context7 | ≥ 85 |
-| 3 | implementation-agent | sonnet | R/W/E + Context7 | ≥ 80 |
-| 4 | code-reviewer | sonnet | Read-only | ≥ 85 |
-| 5 | testing-agent | sonnet | R/W/E + Bash | ≥ 80 |
-| 6 | documentation-agent | sonnet | R/W/E | ≥ 80 |
-| 7 | git-agent | haiku | Read + Bash | ≥ 90 |
-| 8 | cleanup-agent | haiku | Read + Bash | ≥ 85 |
-| 9 | retrospective-agent | haiku | R/W/E | ≥ 75 |
-
-## Custom MCP Servers
-
-### workflow-state
-
-Manages the shared state file at `data/shared/workflow_state.json`:
-
-| Tool | Description |
-|------|-------------|
-| `get_state` | Read current workflow state |
-| `init_project` | Initialize for a new project |
-| `advance_agent` | Complete current agent, move to next |
-| `request_rework` | Send back to previous agent (with loop limit) |
-| `set_context` | Store shared data for other agents |
-| `add_blocker` | Record a blocking issue |
-
-### quality-gates
-
-Validates agent outputs against score thresholds and required artifacts:
-
-| Tool | Description |
-|------|-------------|
-| `validate_gate` | Check if agent passes its quality gate |
-| `get_gate_requirements` | Get threshold and required artifacts |
-| `pipeline_summary` | Overview of all gates and pass/fail status |
-
-## Hooks
-
-The orchestrator uses 5 of the SDK's 12 hook events:
-
-| Hook | Purpose |
-|------|---------|
-| `PreToolUse` | Block destructive bash commands |
-| `PostToolUse` | Log workflow state changes |
-| `SubagentStart` | Track which agents run, log timing |
-| `SubagentStop` | Log completion timing |
-| `Stop` | Print final session summary |
-| `Error` | Log errors |
-
-## Permission Control
-
-The `canUseTool` callback enforces team policy:
-
-- **Blocked**: `git push --force`, destructive bash commands, production deploys
-- **Allowed**: Everything else (within each agent's tool restrictions)
-
-Each agent also has its own tool allowlist — for example, the code-reviewer can only Read/Grep (no editing), and the git-agent can only Read/Bash (no file writes).
-
-## Structured Output
-
-The orchestrator requests a `ProjectReport` JSON schema as its final output:
+### `query()` — Main Entry Point
 
 ```typescript
-{
-  project_name: string;
-  status: "success" | "partial" | "failed";
-  agents_completed: string[];
-  quality_scores: Record<string, number>;
-  files_created: string[];
-  files_modified: string[];
-  blockers: string[];
-  total_duration_seconds: number;
-  summary: string;
+import { query } from "@anthropic-ai/claude-agent-sdk";
+
+const response = query({
+  prompt: "Build a REST API",
+  options: {
+    model: "sonnet",
+    cwd: process.cwd(),
+    systemPrompt: SYSTEM_PROMPT,
+    agents: buildAgents(),          // Record<string, AgentDefinition>
+    mcpServers: buildMcpServers(),  // Record<string, McpServerConfig>
+    hooks,                          // Partial<Record<HookEvent, HookCallbackMatcher[]>>
+    canUseTool,                     // CanUseTool function
+    permissionMode: "acceptEdits",
+    settingSources: ["project"],
+    enableFileCheckpointing: true,
+    maxTurns: 200,
+    maxBudgetUsd: 25,
+    betas: ["context-1m-2025-08-07"],
+    outputFormat: {
+      type: "json_schema",
+      schema: z.toJSONSchema(ProjectReportSchema),
+    },
+  },
+});
+
+for await (const message of response) { /* SDKMessage stream */ }
+```
+
+### `AgentDefinition` — Subagent Configuration
+
+```typescript
+type AgentDefinition = {
+  description: string;                            // When to invoke
+  prompt: string;                                 // Agent system prompt
+  tools?: string[];                               // Allowed tool names
+  model?: 'sonnet' | 'opus' | 'haiku' | 'inherit'; // Model override
 }
 ```
 
-## Configuration
+> Note: `maxTurns` is NOT per-agent — it's set on the top-level `Options`.
 
-Edit the `CONFIG` object in `orchestrator.ts`:
+### `HookCallbackMatcher[]` — Hook Configuration
 
 ```typescript
-const CONFIG = {
-  model: "claude-sonnet-4-5",     // Main orchestrator model
-  workingDirectory: process.cwd(), // Project root
-  maxSessionMinutes: 80,           // Rotate before 90-min limit
-  context7Enabled: true,           // Context7 MCP for lib research
+// Hooks config: Partial<Record<HookEvent, HookCallbackMatcher[]>>
+const hooks = {
+  PreToolUse: [
+    {
+      matcher: "Bash",  // Only trigger for Bash tool calls
+      hooks: [async (input, toolUseID, { signal }) => {
+        // Return {} to allow, or { hookSpecificOutput: { ... } } to deny
+        return {};
+      }],
+    },
+  ],
+  SubagentStart: [{ hooks: [trackAgent] }],
+  Stop: [{ hooks: [printSummary] }],
 };
 ```
 
-### Model Selection per Agent
+### `CanUseTool` — Permission Control
 
-Agents use different models based on task complexity:
+```typescript
+async function canUseTool(
+  toolName: string,
+  input: ToolInput,
+  options: { signal: AbortSignal; suggestions?: PermissionUpdate[] }
+): Promise<
+  | { behavior: "allow"; updatedInput: ToolInput }
+  | { behavior: "deny"; message: string }
+> {
+  // ...
+}
+```
 
-- **Sonnet**: Planning, architecture, implementation, review, testing, docs (complex reasoning)
-- **Haiku**: Git, cleanup, retrospective (fast, cost-effective for simpler tasks)
+### `createSdkMcpServer()` / `tool()` — In-Process MCP
 
-Override in `buildAgents()` by changing `model: "sonnet"` to `"opus"`, `"haiku"`, or `"inherit"`.
+```typescript
+import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+
+const server = createSdkMcpServer({
+  name: "workflow-state",
+  version: "1.0.0",
+  tools: [
+    tool("get_state", "Read workflow state", {}, async () => ({
+      content: [{ type: "text", text: JSON.stringify(state) }],
+    })),
+  ],
+});
+```
+
+## MCP Servers
+
+| Server | Type | Purpose |
+|--------|------|---------|
+| `workflow-state` | SDK MCP (in-process) | State machine tracking agent handoffs, quality scores, loop counts |
+| `quality-gates` | SDK MCP (in-process) | Score thresholds, artifact validation, pipeline summary |
+| `context7` | External (stdio) | Library documentation lookup for framework research |
+
+## Hooks
+
+| Event | Purpose |
+|-------|---------|
+| `PreToolUse` | Block destructive bash commands, log all tool calls |
+| `PostToolUse` | Log workflow state changes |
+| `SubagentStart` | Track which agents are invoked |
+| `SubagentStop` | Log agent completion time |
+| `Stop` | Print session summary |
+| `SessionStart` | Inject orchestration context |
 
 ## File Structure
 
 ```
 claude-sdk/
+├── src/
+│   ├── orchestrator.ts           # Main entry — query(), agents, hooks, canUseTool
+│   └── tools/
+│       ├── workflow-state.ts     # SDK MCP: state machine, handoffs, rework loops
+│       └── quality-gates.ts     # SDK MCP: score validation, artifact checks
 ├── package.json
-├── tsconfig.json
-├── README.md
-└── src/
-    ├── orchestrator.ts          # Main entry — agents, hooks, streaming
-    └── tools/
-        ├── workflow-state.ts    # MCP server: state machine
-        └── quality-gates.ts     # MCP server: gate validation
+└── tsconfig.json
 ```
 
-## Extending
+## Environment Variables
 
-### Add a New Agent
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ANTHROPIC_API_KEY` | Yes | Your Anthropic API key |
+| `MCP_TOOL_TIMEOUT` | No | MCP tool execution timeout (default: 30s) |
 
-1. Add the agent definition in `buildAgents()` in `orchestrator.ts`
-2. Add its quality gate in `QUALITY_GATES` in `quality-gates.ts`
-3. Add it to `AGENT_PIPELINE` and `PHASE_MAP` in `workflow-state.ts`
-4. Update the system prompt's pipeline description
+## Requirements
 
-### Add a Custom MCP Server
-
-```typescript
-// In buildMcpServers():
-servers["my-server"] = createSdkMcpServer({
-  name: "my-server",
-  version: "1.0.0",
-  tools: [
-    tool("my_tool", "Description", { input: z.string() }, async (args) => {
-      return { content: [{ type: "text", text: "result" }] };
-    }),
-  ],
-});
-
-// Then add to agent tool lists:
-"mcp__my-server__my_tool"
-```
-
-### Use with External MCP Servers
-
-```typescript
-servers["my-api"] = {
-  url: "https://api.example.com/mcp",
-  type: "http",
-  headers: { Authorization: "Bearer ..." },
-};
-```
-
-## Relationship to Other Adapters
-
-This SDK orchestrator is one of three platform adapters:
-
-| Adapter | Location | Purpose |
-|---------|----------|---------|
-| `.claude/agents/` | Markdown subagent defs | Interactive Claude Code sessions |
-| `claude-sdk/` | **This orchestrator** | Programmatic / CI/CD / embedding |
-| `.opencode/` | OpenCode agent configs | OpenCode CLI sessions |
+- Node.js 18+
+- `@anthropic-ai/claude-agent-sdk` ^0.2.39 (installed via npm)
+- `zod` ^4.0.0 (for structured output schemas)

@@ -14,19 +14,36 @@
  *  10. retrospective-agent
  *
  * Features:
- *   - Custom MCP servers for workflow state + quality gates
- *   - Structured output for final reports
- *   - Hooks for logging, subagent tracking, and cleanup
- *   - canUseTool permission control per agent role
- *   - Session management with forking support
+ *   - SDK MCP servers for workflow state + quality gates (in-process, zero overhead)
+ *   - Structured output for final reports (JSON schema validated)
+ *   - Hooks (HookCallbackMatcher[]) for logging, security, and lifecycle events
+ *   - canUseTool (CanUseTool) permission control
+ *   - Session management with resume and fork support
+ *   - File checkpointing for rewind capability
  *   - Context7 MCP integration for library research
+ *   - 1M context window beta support
  *
  * Usage:
  *   npx tsx src/orchestrator.ts "Build a REST API for user management"
  *   npx tsx src/orchestrator.ts --resume <sessionId> "Continue implementation"
+ *
+ * Requires:
+ *   - Node.js 18+
+ *   - ANTHROPIC_API_KEY environment variable
+ *   - @anthropic-ai/claude-agent-sdk (bundles Claude Code CLI automatically)
  */
 
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import {
+  query,
+  type AgentDefinition,
+  type HookCallback,
+  type HookCallbackMatcher,
+  type HookEvent,
+  type SDKMessage,
+  type SDKResultMessage,
+  type SDKSystemMessage,
+  type SDKAssistantMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { createWorkflowStateMcpServer } from "./tools/workflow-state.js";
 import { createQualityGatesMcpServer } from "./tools/quality-gates.js";
@@ -34,10 +51,18 @@ import { createQualityGatesMcpServer } from "./tools/quality-gates.js";
 // ── Configuration ───────────────────────────────────────────────────
 
 const CONFIG = {
-  model: "claude-sonnet-4-5" as const,
-  workingDirectory: process.cwd(),
-  maxSessionMinutes: 80,
+  /** Main orchestrator model — uses SDK alias */
+  model: "sonnet" as const,
+  /** Working directory for file operations */
+  cwd: process.cwd(),
+  /** Maximum turns for the full orchestrator session */
+  maxTurns: 200,
+  /** Maximum budget in USD (safety limit) */
+  maxBudgetUsd: 25,
+  /** Enable Context7 MCP for library documentation lookup */
   context7Enabled: true,
+  /** Enable 1M context window beta */
+  enableLongContext: true,
 };
 
 // ── Structured Output Schema ────────────────────────────────────────
@@ -55,8 +80,19 @@ const ProjectReportSchema = z.object({
 });
 
 // ── Agent Definitions ───────────────────────────────────────────────
+//
+// Each agent implements the AgentDefinition interface:
+//   {
+//     description: string;    — when to invoke this agent
+//     prompt: string;         — the agent's system prompt
+//     tools?: string[];       — allowed tool names (inherits all if omitted)
+//     model?: 'sonnet' | 'opus' | 'haiku' | 'inherit';
+//   }
+//
+// NOTE: maxTurns is NOT a per-agent option — it lives on the
+// top-level query Options. Subagents share the session turn budget.
 
-function buildAgents() {
+function buildAgents(): Record<string, AgentDefinition> {
   return {
     // ─── Agent 2: Project Planner ──────────────────────────────
     "project-planner": {
@@ -105,8 +141,7 @@ When done, use workflow-state advance_agent to hand off to code-architect.`,
         "mcp__context7__resolve-library-id",
         "mcp__context7__query-docs",
       ],
-      model: "sonnet" as const,
-      maxTurns: 25,
+      model: "sonnet",
     },
 
     // ─── Agent 3: Code Architect ───────────────────────────────
@@ -157,8 +192,7 @@ Self-assess >= 85/100. Validate via quality-gates MCP. Advance to implementation
         "mcp__context7__resolve-library-id",
         "mcp__context7__query-docs",
       ],
-      model: "sonnet" as const,
-      maxTurns: 25,
+      model: "sonnet",
     },
 
     // ─── Agent 4: Implementation Agent ─────────────────────────
@@ -209,8 +243,7 @@ Self-assess >= 80/100. Validate and advance to code-reviewer.`,
         "mcp__context7__resolve-library-id",
         "mcp__context7__query-docs",
       ],
-      model: "sonnet" as const,
-      maxTurns: 40,
+      model: "sonnet",
     },
 
     // ─── Agent 5: Code Reviewer ────────────────────────────────
@@ -259,8 +292,7 @@ If requesting rework, be SPECIFIC: file path, line context, exact issue, suggest
         "mcp__workflow-state__add_blocker",
         "mcp__quality-gates__validate_gate",
       ],
-      model: "sonnet" as const,
-      maxTurns: 20,
+      model: "sonnet",
     },
 
     // ─── Agent 6: Testing Agent ────────────────────────────────
@@ -310,8 +342,7 @@ Write comprehensive tests, run them, verify coverage, and validate edge cases.
         "mcp__workflow-state__add_blocker",
         "mcp__quality-gates__validate_gate",
       ],
-      model: "sonnet" as const,
-      maxTurns: 30,
+      model: "sonnet",
     },
 
     // ─── Agent 7: Documentation Agent ──────────────────────────
@@ -352,8 +383,7 @@ Self-assess >= 80/100. Validate and advance to git-agent.`,
         "mcp__workflow-state__advance_agent",
         "mcp__quality-gates__validate_gate",
       ],
-      model: "sonnet" as const,
-      maxTurns: 20,
+      model: "sonnet",
     },
 
     // ─── Agent 8: Git Agent ────────────────────────────────────
@@ -397,8 +427,7 @@ Self-assess >= 90/100. Validate and advance to cleanup-agent.`,
         "mcp__workflow-state__advance_agent",
         "mcp__quality-gates__validate_gate",
       ],
-      model: "haiku" as const,
-      maxTurns: 15,
+      model: "haiku",
     },
 
     // ─── Agent 9: Cleanup Agent ────────────────────────────────
@@ -438,8 +467,7 @@ Self-assess >= 85/100. Validate and advance to retrospective-agent.`,
         "mcp__workflow-state__advance_agent",
         "mcp__quality-gates__validate_gate",
       ],
-      model: "haiku" as const,
-      maxTurns: 15,
+      model: "haiku",
     },
 
     // ─── Agent 10: Retrospective Agent ─────────────────────────
@@ -480,85 +508,163 @@ Self-assess >= 75/100. Validate and advance (marks project as complete).`,
         "mcp__quality-gates__validate_gate",
         "mcp__quality-gates__pipeline_summary",
       ],
-      model: "haiku" as const,
-      maxTurns: 15,
+      model: "haiku",
     },
   };
 }
 
 // ── Hooks ───────────────────────────────────────────────────────────
+//
+// The hooks option is:
+//   Partial<Record<HookEvent, HookCallbackMatcher[]>>
+//
+// Each HookCallbackMatcher:
+//   { matcher?: string; hooks: HookCallback[] }
+//
+// HookCallback signature:
+//   (input: HookInput, toolUseID: string | undefined, options: { signal: AbortSignal })
+//     => Promise<HookJSONOutput>
+//
+// Return {} to allow/no-op, or { hookSpecificOutput: { ... } } to control behavior.
 
 function buildHooks() {
   const startTime = Date.now();
   const agentsInvoked = new Set<string>();
   const toolLog: Array<{ tool: string; timestamp: string }> = [];
 
+  // ── PreToolUse: Block destructive bash commands ─────────────
+  const preToolUseBashGuard: HookCallback = async (input, _toolUseID, _opts) => {
+    const toolInput = (input as any).tool_input;
+    const toolName = (input as any).tool_name || "";
+    const ts = new Date().toISOString();
+    toolLog.push({ tool: toolName, timestamp: ts });
+
+    if (toolName === "Bash") {
+      const cmd: string = toolInput?.command || "";
+      const blocked = [
+        "rm -rf /",
+        "rm -rf ~",
+        "dd if=",
+        "mkfs",
+        "> /dev/",
+        "shutdown",
+        ":(){:|:&};:",
+      ];
+      if (blocked.some((p) => cmd.includes(p))) {
+        console.log(`  🛑 Blocked destructive command: ${cmd}`);
+        return {
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse" as const,
+            permissionDecision: "deny" as const,
+            permissionDecisionReason: `Blocked destructive command: ${cmd}`,
+          },
+        };
+      }
+    }
+
+    return {};
+  };
+
+  // ── PreToolUse: Log all tool calls ──────────────────────────
+  const preToolUseLogger: HookCallback = async (input, _toolUseID, _opts) => {
+    const toolName = (input as any).tool_name || "";
+    toolLog.push({ tool: toolName, timestamp: new Date().toISOString() });
+    return {};
+  };
+
+  // ── PostToolUse: Log workflow state changes ─────────────────
+  const postToolUseLogger: HookCallback = async (input, _toolUseID, _opts) => {
+    const toolName = (input as any).tool_name || "";
+    if (toolName.includes("workflow-state")) {
+      console.log(`  📊 Workflow: ${toolName}`);
+    }
+    return {};
+  };
+
+  // ── SubagentStart: Track agent invocations ──────────────────
+  const subagentStartTracker: HookCallback = async (input, _toolUseID, _opts) => {
+    const agentType = (input as any).agent_type || "unknown";
+    agentsInvoked.add(agentType);
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+    console.log(`\n🤖 [${elapsed}s] Subagent started: ${agentType}`);
+    return {};
+  };
+
+  // ── SubagentStop: Log agent completion ──────────────────────
+  const subagentStopTracker: HookCallback = async (input, _toolUseID, _opts) => {
+    const agentType = (input as any).agent_type || "unknown";
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+    console.log(`  ✅ [${elapsed}s] Subagent done: ${agentType}`);
+    return {};
+  };
+
+  // ── Stop: Final session summary ─────────────────────────────
+  const stopSummary: HookCallback = async (_input, _toolUseID, _opts) => {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`\n${"─".repeat(60)}`);
+    console.log(`🏁 Session complete (${elapsed}s)`);
+    console.log(
+      `   Agents invoked: ${Array.from(agentsInvoked).join(", ") || "none"}`
+    );
+    console.log(`   Tool calls: ${toolLog.length}`);
+    console.log(`${"─".repeat(60)}`);
+    return {};
+  };
+
+  // ── SessionStart: Inject orchestration context ──────────────
+  const sessionStartContext: HookCallback = async (_input, _toolUseID, _opts) => {
+    return {
+      hookSpecificOutput: {
+        hookEventName: "SessionStart" as const,
+        additionalContext:
+          "This is the Ultimate AI Coding Team orchestrator. " +
+          "Follow the agent pipeline strictly. Check workflow state before each delegation.",
+      },
+    };
+  };
+
+  // ── Assemble: Partial<Record<HookEvent, HookCallbackMatcher[]>> ──
+  const hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {
+    PreToolUse: [
+      {
+        // Bash-specific guard: block destructive commands
+        matcher: "Bash",
+        hooks: [preToolUseBashGuard],
+      },
+      {
+        // Catch-all logger for all tools (no matcher = all tools)
+        hooks: [preToolUseLogger],
+      },
+    ],
+    PostToolUse: [
+      {
+        hooks: [postToolUseLogger],
+      },
+    ],
+    SubagentStart: [
+      {
+        hooks: [subagentStartTracker],
+      },
+    ],
+    SubagentStop: [
+      {
+        hooks: [subagentStopTracker],
+      },
+    ],
+    Stop: [
+      {
+        hooks: [stopSummary],
+      },
+    ],
+    SessionStart: [
+      {
+        hooks: [sessionStartContext],
+      },
+    ],
+  };
+
   return {
-    hooks: {
-      PreToolUse: async (input: { toolName: string; input: any }) => {
-        const ts = new Date().toISOString();
-        toolLog.push({ tool: input.toolName, timestamp: ts });
-
-        // Block destructive bash commands
-        if (input.toolName === "Bash") {
-          const cmd = input.input?.command || "";
-          const blocked = [
-            "rm -rf /",
-            "rm -rf ~",
-            "dd if=",
-            "mkfs",
-            "> /dev/",
-            "shutdown",
-            ":(){:|:&};:",
-          ];
-          if (blocked.some((p) => cmd.includes(p))) {
-            return {
-              allow: false,
-              message: `🛑 Blocked destructive command: ${cmd}`,
-            };
-          }
-        }
-
-        return { allow: true };
-      },
-
-      PostToolUse: async (input: { toolName: string; result: any }) => {
-        // Log workflow state changes
-        if (input.toolName.includes("workflow-state")) {
-          console.log(`  📊 Workflow: ${input.toolName}`);
-        }
-      },
-
-      SubagentStart: async (input: { agentName: string }) => {
-        agentsInvoked.add(input.agentName);
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-        console.log(
-          `\n🤖 [${elapsed}s] Subagent started: ${input.agentName}`
-        );
-      },
-
-      SubagentStop: async (input: { agentName: string }) => {
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-        console.log(`  ✅ [${elapsed}s] Subagent done: ${input.agentName}`);
-      },
-
-      Stop: async () => {
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.log(`\n${"─".repeat(60)}`);
-        console.log(`🏁 Session complete (${elapsed}s)`);
-        console.log(
-          `   Agents invoked: ${Array.from(agentsInvoked).join(", ") || "none"}`
-        );
-        console.log(`   Tool calls: ${toolLog.length}`);
-        console.log(`${"─".repeat(60)}`);
-      },
-
-      Error: async (input: { error: Error }) => {
-        console.error(`\n❌ Error: ${input.error.message}`);
-      },
-    },
-
-    // Expose for final report
+    hooks,
     getStats: () => ({
       agentsInvoked: Array.from(agentsInvoked),
       toolCalls: toolLog.length,
@@ -568,21 +674,37 @@ function buildHooks() {
 }
 
 // ── Permission Control ──────────────────────────────────────────────
+//
+// canUseTool follows the CanUseTool type:
+//
+//   (toolName: string, input: ToolInput,
+//    options: { signal: AbortSignal; suggestions?: PermissionUpdate[] })
+//     => Promise<PermissionResult>
+//
+// PermissionResult is one of:
+//   { behavior: 'allow'; updatedInput: ToolInput; updatedPermissions?: PermissionUpdate[] }
+//   { behavior: 'deny'; message: string; interrupt?: boolean }
 
 async function canUseTool(
   toolName: string,
-  input: any
-): Promise<{ behavior: "allow" } | { behavior: "deny"; message: string }> {
-  // Block git push --force
+  input: any,
+  _options: { signal: AbortSignal; suggestions?: any[] }
+): Promise<
+  | { behavior: "allow"; updatedInput: any; updatedPermissions?: any[] }
+  | { behavior: "deny"; message: string; interrupt?: boolean }
+> {
   if (toolName === "Bash") {
     const cmd: string = input?.command || "";
+
+    // Block git push --force
     if (cmd.includes("--force") && cmd.includes("push")) {
       return {
         behavior: "deny",
-        message: "Force push is not allowed by team policy",
+        message: "Force push is not allowed by team policy.",
       };
     }
-    // Warn on production-like commands
+
+    // Block production deployments
     if (cmd.includes("deploy") && cmd.includes("prod")) {
       return {
         behavior: "deny",
@@ -592,20 +714,27 @@ async function canUseTool(
     }
   }
 
-  return { behavior: "allow" };
+  return { behavior: "allow", updatedInput: input };
 }
 
 // ── MCP Servers ─────────────────────────────────────────────────────
+//
+// SDK MCP servers (createSdkMcpServer) run in-process — zero subprocess
+// overhead, direct function calls.
+//
+// External MCP servers use stdio transport (spawns a child process).
 
 function buildMcpServers(workingDir: string) {
   const servers: Record<string, any> = {
+    // In-process SDK MCP servers
     "workflow-state": createWorkflowStateMcpServer(workingDir),
     "quality-gates": createQualityGatesMcpServer(workingDir),
   };
 
-  // Context7 MCP (external, if enabled)
+  // Context7 MCP (external stdio transport)
   if (CONFIG.context7Enabled) {
     servers["context7"] = {
+      type: "stdio" as const,
       command: "npx",
       args: ["-y", "@upstash/context7-mcp@latest"],
     };
@@ -656,7 +785,7 @@ You coordinate a pipeline of 9 specialized subagents to build software projects 
 async function main() {
   const args = process.argv.slice(2);
 
-  // Parse CLI args
+  // ── Parse CLI args ────────────────────────────────────────────
   let prompt = "";
   let resumeSessionId: string | undefined;
   let forkSession = false;
@@ -691,7 +820,7 @@ async function main() {
     process.exit(0);
   }
 
-  const workingDir = CONFIG.workingDirectory;
+  const workingDir = CONFIG.cwd;
   const { hooks, getStats } = buildHooks();
 
   console.log(`\n🚀 Ultimate AI Coding Team starting...`);
@@ -699,31 +828,35 @@ async function main() {
   console.log(`   Working dir: ${workingDir}`);
   console.log(`   Model: ${CONFIG.model}\n`);
 
-  // Build the query
-  const queryOptions: any = {
+  // ── Build Query Options (Options interface) ───────────────────
+
+  const queryOptions: Record<string, any> = {
     model: CONFIG.model,
-    workingDirectory: workingDir,
+    cwd: workingDir,
     systemPrompt: SYSTEM_PROMPT,
     agents: buildAgents(),
     mcpServers: buildMcpServers(workingDir),
     hooks,
     canUseTool,
     permissionMode: "acceptEdits" as const,
-    settingSources: ["project" as const, "local" as const],
+    settingSources: ["project" as const],
     enableFileCheckpointing: true,
+    maxTurns: CONFIG.maxTurns,
+    maxBudgetUsd: CONFIG.maxBudgetUsd,
 
-    // Structured output for final report
+    // Structured output — validated against ProjectReportSchema
     outputFormat: {
       type: "json_schema" as const,
-      json_schema: {
-        name: "ProjectReport",
-        strict: true,
-        schema: z.toJSONSchema(ProjectReportSchema),
-      },
+      schema: z.toJSONSchema(ProjectReportSchema),
     },
   };
 
-  // Session management
+  // 1M context window beta
+  if (CONFIG.enableLongContext) {
+    queryOptions.betas = ["context-1m-2025-08-07"];
+  }
+
+  // Session management (resume / fork)
   if (resumeSessionId) {
     queryOptions.resume = resumeSessionId;
     if (forkSession) {
@@ -731,12 +864,14 @@ async function main() {
     }
   }
 
+  // ── Execute Query ───────────────────────────────────────────────
+
   const response = query({
     prompt: prompt || "Continue with the current workflow",
     options: queryOptions,
   });
 
-  // ── Stream and Process ──────────────────────────────────────────
+  // ── Stream and Process SDKMessages ──────────────────────────────
 
   let sessionId: string | undefined;
   let finalReport: z.infer<typeof ProjectReportSchema> | undefined;
@@ -744,38 +879,77 @@ async function main() {
   try {
     for await (const message of response) {
       switch (message.type) {
-        case "system":
-          if (message.subtype === "init") {
-            sessionId = message.session_id;
-            console.log(`✨ Session: ${sessionId}\n`);
+        case "system": {
+          const sysMsg = message as SDKSystemMessage;
+          if (sysMsg.subtype === "init") {
+            sessionId = sysMsg.session_id;
+            console.log(`✨ Session: ${sessionId}`);
+            console.log(
+              `   Tools: ${sysMsg.tools?.length || 0} available`
+            );
+            console.log(
+              `   MCP servers: ${
+                sysMsg.mcp_servers
+                  ?.map((s) => `${s.name}(${s.status})`)
+                  .join(", ") || "none"
+              }`
+            );
+            console.log();
           }
           break;
+        }
 
-        case "assistant":
-          console.log(`\n📋 Orchestrator: ${message.content}`);
+        case "assistant": {
+          const asstMsg = message as SDKAssistantMessage;
+          // Extract text blocks from the assistant message content array
+          const textContent = asstMsg.message?.content
+            ?.filter((block: any) => block.type === "text")
+            ?.map((block: any) => block.text)
+            ?.join("");
+          if (textContent) {
+            console.log(`\n📋 Orchestrator: ${textContent}`);
+          }
           break;
+        }
 
-        case "tool_call":
-          // Minimal logging — hooks handle the detail
-          break;
-
-        case "result":
-          if (message.structured_output) {
-            try {
-              finalReport = ProjectReportSchema.parse(
-                message.structured_output
-              );
-            } catch {
-              console.log(
-                "📄 Final output (unstructured):",
-                message.structured_output
-              );
+        case "result": {
+          const resultMsg = message as SDKResultMessage;
+          if (resultMsg.subtype === "success") {
+            // Parse structured output if present
+            if (
+              "structured_output" in resultMsg &&
+              resultMsg.structured_output
+            ) {
+              try {
+                finalReport = ProjectReportSchema.parse(
+                  resultMsg.structured_output
+                );
+              } catch {
+                console.log(
+                  "📄 Final output (unstructured):",
+                  JSON.stringify(resultMsg.structured_output, null, 2)
+                );
+              }
+            }
+            console.log(
+              `\n💰 Cost: $${resultMsg.total_cost_usd?.toFixed(4) || "?"}`
+            );
+            console.log(`   Turns: ${resultMsg.num_turns}`);
+          } else {
+            // Error result subtypes: error_max_turns, error_during_execution,
+            //   error_max_budget_usd, error_max_structured_output_retries
+            console.error(`\n❌ Session ended: ${resultMsg.subtype}`);
+            if ("errors" in resultMsg) {
+              for (const err of (resultMsg as any).errors || []) {
+                console.error(`   ${err}`);
+              }
             }
           }
           break;
+        }
 
-        case "error":
-          console.error(`\n❌ Error: ${(message as any).error?.message}`);
+        // user, compact_boundary, partial — skip silently
+        default:
           break;
       }
     }
@@ -797,7 +971,9 @@ async function main() {
     console.log(`  Summary: ${finalReport.summary}`);
     console.log(`\n  Quality Scores:`);
     for (const [agent, score] of Object.entries(finalReport.quality_scores)) {
-      const bar = "█".repeat(Math.round(score / 5)) + "░".repeat(20 - Math.round(score / 5));
+      const bar =
+        "█".repeat(Math.round(score / 5)) +
+        "░".repeat(20 - Math.round(score / 5));
       console.log(`    ${agent.padEnd(25)} ${bar} ${score}/100`);
     }
     if (finalReport.blockers.length > 0) {

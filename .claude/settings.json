@@ -1,63 +1,41 @@
 {
-  "project": {
-    "name": "Ultimate AI Coding Team",
-    "description": "Production-grade autonomous AI coding team with 10 specialized agents"
-  },
-  "skills": {
-    "directory": "skills",
-    "autoload": true,
-    "skills": [
-      {
-        "name": "system-orchestrator",
-        "path": "skills/system-orchestrator/SKILL.md",
-        "description": "Main entry point for complex coding tasks",
-        "priority": "high"
-      },
-      {
-        "name": "project-planner",
-        "path": "skills/project-planner/SKILL.md",
-        "description": "Task breakdown and research"
-      },
-      {
-        "name": "code-architect",
-        "path": "skills/code-architect/SKILL.md",
-        "description": "System design and tech stack selection"
-      },
-      {
-        "name": "implementation-agent",
-        "path": "skills/implementation-agent/SKILL.md",
-        "description": "Code writing"
-      },
-      {
-        "name": "code-reviewer",
-        "path": "skills/code-reviewer/SKILL.md",
-        "description": "Quality analysis and review"
-      },
-      {
-        "name": "testing-agent",
-        "path": "skills/testing-agent/SKILL.md",
-        "description": "Test writing and execution"
-      },
-      {
-        "name": "documentation-agent",
-        "path": "skills/documentation-agent/SKILL.md",
-        "description": "Documentation in simple language"
-      },
-      {
-        "name": "git-agent",
-        "path": "skills/git-agent/SKILL.md",
-        "description": "Version control operations"
-      },
-      {
-        "name": "cleanup-agent",
-        "path": "skills/cleanup-agent/SKILL.md",
-        "description": "File organization and cleanup"
-      },
-      {
-        "name": "retrospective-agent",
-        "path": "skills/retrospective-agent/SKILL.md",
-        "description": "Learning and knowledge base updates"
-      }
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash(npm run *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(python *)",
+      "Bash(pytest *)",
+      "Bash(git status)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git branch *)",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(cat *)",
+      "Bash(ls *)",
+      "Bash(find *)",
+      "Bash(wc *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(**/secrets/**)",
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
+      "Bash(sudo *)",
+      "Bash(shutdown *)",
+      "Bash(reboot *)"
     ]
   },
   "hooks": {
@@ -71,32 +49,5 @@
         ]
       }
     ]
-  },
-  "knowledge_base": {
-    "directory": "data/knowledge_base",
-    "files": [
-      "lessons_learned.md",
-      "common_mistakes.md",
-      "coding_standards.md",
-      "performance_tips.md"
-    ],
-    "auto_read": true
-  },
-  "mcp_servers": {
-    "config_file": "config/mcp_servers.json"
-  },
-  "workflow": {
-    "state_file": "data/shared/workflow_state.json",
-    "metrics_file": "logs/agent_metrics.json"
-  },
-  "directories": {
-    "projects": "projects",
-    "tasks": "tasks",
-    "output": "output",
-    "logs": "logs",
-    "tmp": "tmp"
-  },
-  "quality_gates": {
-    "config_file": "config/quality_gates.md"
   }
 }
