@@ -186,7 +186,10 @@ projects/my-project/
 
 ```
 ultimate-coding-team/
-├── skills/              # Agent definitions (read these!)
+├── skills/              # Agent SKILL.md files (read these!)
+├── .claude/agents/      # Claude Code agent definitions
+├── .opencode/agents/    # OpenCode agent definitions
+├── claude-sdk/          # Claude Agent SDK orchestrator (TypeScript)
 ├── projects/            # Your projects go here
 ├── tasks/
 │   ├── active/         # Current work files

@@ -311,3 +311,16 @@ Escalate to human review when:
 | `/tasks/active/` | Current work |
 | `/tasks/review/` | Human review items |
 | `/config/quality_gates.md` | Gate thresholds |
+
+## Agent Definition Locations
+
+Agent instructions exist in several places for different tools.
+
+| Location | Format | Used By |
+|----------|--------|---------|
+| `skills/*/SKILL.md` | Detailed SKILL.md files | All tools (primary source) |
+| `.claude/agents/*.md` | Short markdown definitions | Claude Code subagent routing |
+| `.opencode/agents/*.md` | Short markdown definitions | OpenCode subagent routing |
+| `claude-sdk/src/orchestrator.ts` | TypeScript `AgentDefinition` objects | Claude Agent SDK |
+
+The `skills/` directory is the primary source. Other locations contain shorter definitions tailored to each platform.

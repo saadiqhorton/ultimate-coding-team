@@ -53,7 +53,7 @@ Handle directly. No need for the full workflow for:
 
 ```
 ultimate-coding-team/
-├── skills/                    # Agent definitions
+├── skills/                    # Agent SKILL.md files (detailed instructions)
 │   ├── system-orchestrator/   # Entry point
 │   ├── project-planner/
 │   ├── code-architect/
@@ -64,6 +64,13 @@ ultimate-coding-team/
 │   ├── git-agent/
 │   ├── cleanup-agent/
 │   └── retrospective-agent/
+├── .claude/agents/            # Claude Code agent definitions (one per agent)
+├── .opencode/agents/          # OpenCode agent definitions (one per agent)
+├── .codex/                    # Codex hooks
+├── claude-sdk/                # Claude Agent SDK orchestrator (TypeScript)
+│   └── src/
+│       ├── orchestrator.ts    # Main entry point
+│       └── tools/             # SDK MCP servers (workflow-state, quality-gates)
 ├── projects/                  # Your projects go here
 ├── tasks/                     # Task management
 │   ├── inbox/                 # Incoming requests
@@ -79,7 +86,7 @@ ultimate-coding-team/
 │   ├── architecture/
 │   ├── plans/
 │   └── reports/
-├── docs/                      # Documentation templates
+├── docs/                      # Documentation templates and guides
 ├── logs/                      # Logs and metrics
 ├── config/                    # Configuration files
 └── tmp/                       # Temporary files
@@ -154,6 +161,8 @@ If code doesn't pass review or tests fail, the system sends work back for fixes.
 | `config/quality_gates.md` | Quality thresholds |
 | `config/workflow_config.md` | Workflow settings |
 | `data/shared/workflow_state.json` | Current workflow status |
+| `claude-sdk/README.md` | Claude Agent SDK orchestrator docs |
+| `CHANGELOG.md` | Version history and changes |
 
 ## Knowledge Base
 
@@ -186,12 +195,16 @@ The Documentation Agent writes in simple language:
 
 ## Platform Support
 
-This system works with any AI tool that can read/write files:
-- **Claude Code** - See `CLAUDE.md` and `.claude/` directory
-- **Gemini CLI** - See `GEMINI.md`
-- **OpenCode** - See `.opencode/` directory
-- **Codex** - See `.codex/` directory
-- **Any other** - Just read the SKILL.md files
+This system works with any AI tool that can read and write files.
+
+| Platform | Configuration | Agent Definitions |
+|----------|--------------|-------------------|
+| **Claude Code** | `CLAUDE.md`, `.claude/settings.json` | `.claude/agents/` |
+| **Claude Agent SDK** | `claude-sdk/README.md` | Built into `claude-sdk/src/orchestrator.ts` |
+| **Gemini CLI** | `GEMINI.md` | Uses `skills/` SKILL.md files |
+| **OpenCode** | `opencode.json` | `.opencode/agents/` |
+| **Codex** | `.codex/` | Uses `skills/` SKILL.md files |
+| **Any other tool** | Read `AGENTS.md` | Read `skills/*/SKILL.md` |
 
 ## Human Review
 

@@ -89,7 +89,14 @@ See `config/mcp_servers.json` for common library IDs.
 
 ```
 ultimate-coding-team/
-├── skills/              # Agent SKILL.md files
+├── skills/              # Agent SKILL.md files (detailed instructions)
+├── .claude/agents/      # Claude Code agent definitions (one .md per agent)
+├── .opencode/agents/    # OpenCode agent definitions (one .md per agent)
+├── .codex/              # Codex hooks
+├── claude-sdk/          # Claude Agent SDK orchestrator (TypeScript)
+│   └── src/
+│       ├── orchestrator.ts
+│       └── tools/       # SDK MCP servers (workflow-state, quality-gates)
 ├── projects/            # Created projects go here
 ├── tasks/
 │   ├── inbox/          # Incoming work
@@ -171,10 +178,12 @@ The Documentation Agent follows strict simple language rules:
 | File | Purpose |
 |------|---------|
 | `AGENTS.md` | Agent usage rules |
+| `CHANGELOG.md` | Version history and changes |
 | `config/quality_gates.md` | Quality thresholds |
 | `config/workflow_config.md` | Workflow sequence |
 | `config/routing_table.md` | Smart detection logic |
 | `data/shared/workflow_state.json` | Current state |
+| `claude-sdk/README.md` | Claude Agent SDK orchestrator docs |
 | `logs/agent_metrics.json` | Performance metrics |
 | `logs/errors/` | Error reports (tool failures, escalations) |
 | `logs/traces/` | Workflow steps, routing decisions |
