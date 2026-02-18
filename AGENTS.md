@@ -290,6 +290,44 @@ User Request
 
 ---
 
+## Knowledge Base & Memory
+
+### How It Works
+
+1. **Before starting work:** All agents read knowledge base files for context
+2. **After workflow completes:** Retrospective Agent updates knowledge base
+3. **Humans review weekly:** Consolidate learnings, update decisions
+
+### Knowledge Base Files
+
+| File | Purpose | When to Read |
+|------|---------|--------------|
+| `data/knowledge_base/lessons_learned.md` | What worked/didn't work | Before any project |
+| `data/knowledge_base/common_mistakes.md` | Pitfalls to avoid | Before writing code |
+| `data/knowledge_base/coding_standards.md` | Code quality rules | Before writing code |
+| `data/knowledge_base/performance_tips.md` | Optimization patterns | Before designing systems |
+| `data/decisions.md` | Architectural choices | Before planning projects |
+
+### Decision Tracking
+
+Important decisions are tracked in `data/decisions.md` separate from the knowledge base. This includes:
+- Technology choices (language, framework, database)
+- Process rules (loops, thresholds, approvals)
+- Architecture patterns
+- Tool selections
+
+### Human Review Process
+
+**Weekly:**
+- Review new entries in knowledge base files
+- Check for duplicate or conflicting information
+- Consolidate similar entries
+- Archive outdated information
+
+See `docs/MEMORY_GUIDE.md` for full documentation.
+
+---
+
 ## Human Escalation
 
 Escalate to human review when:
